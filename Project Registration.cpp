@@ -109,21 +109,19 @@ Mat select_roi(int m, int n, Mat img1, Mat lr_roi)
 		c.at<float>(i, 0) = a[i];
 		c.at<float>(i, 1) = b[i];
 	}
-	int row = c.rows;
-	int col = c.cols;
-	MatrixXd Y(row, col), X(2, 2);
-	cv2eigen(c, Y);
-	X = Y.adjoint()*Y;
-	X = X.array() / (Y.rows() - 1);  // Xij
 	
-	MatrixXd A = Y(Rect(0, 0, 1, patch*patch)), P(1);
-	P = A*A.adjoint();
-	P = P.array() / (A.rows() - 1);  // Xaa
-	float Caa = sqrt(int(P));
-	MatrixXd B = Y(Rect(1, 0, 1, patch*patch)), Q(1, 1);
-	Q = B.adjoint()*B;
-	Q = Q.array() / (B.rows() - 1);  // Xbb
-	Q = sqrt(Q);
-	
+	Mat covar, means;
+	calcCovarMatrix(c, covar, means, CV_COVAR_NORMAL | CV_COVAR_ROWS);
+	double variance1, variance2;
+	variance1 = average(a, patch*patch);
+	variance2 = average(b, patch*patch);
 
+	Mat corrcoef;
+	corrcoef = covar / (variance1*variance2);
+
+	float Sum=0;
+	for (int i = 0; i < corrcoef.rows; i++) // 求和
+		for (int j=0; j<corrcoef.cols;j++)
+			Sum += corrcoef.at<float>(i, j);
+	return Sum；
 }
