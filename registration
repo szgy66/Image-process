@@ -1,0 +1,124 @@
+#include <iostream>  
+#include<vector>
+#include<opencv2/opencv.hpp>
+
+using namespace std;
+using namespace cv;
+const float inlier_threshold = 2.5f; 
+const float nn_match_ratio = 0.8f;   
+int main()
+{
+	Mat gray1_x, gray1_y, gray2_x, gray2_y, dst1, dst2, img11, img22;
+
+	Mat img1 = imread("D:/Desktop/captrue/0.png", IMREAD_GRAYSCALE);
+	equalizeHist(img1, img1);
+
+	GaussianBlur(img1, img11, Size(3, 3), 1, 0, BORDER_DEFAULT);
+	Sobel(img11, gray1_x, CV_16S, 1, 0, 3, 1, 1, BORDER_DEFAULT);
+	convertScaleAbs(gray1_x, gray1_x);
+	Sobel(img11, gray1_y, CV_16S, 0, 1, 3, 1, 1, BORDER_DEFAULT);
+	convertScaleAbs(gray1_y, gray1_y);
+	addWeighted(gray1_x, 0.5, gray1_y, 0.5, 0, dst1);
+
+
+	Mat img2= imread("D:/Desktop/captrue/30.png", IMREAD_GRAYSCALE);
+	equalizeHist(img2, img2);
+
+	GaussianBlur(img2, img22, Size(3, 3), 1, 0, BORDER_DEFAULT);
+	Sobel(img22, gray2_x, CV_16S, 1, 0, 3, 1, 1, BORDER_DEFAULT);
+	convertScaleAbs(gray2_x, gray2_x);
+	Sobel(img22, gray2_y, CV_16S, 0, 1, 3, 1, 1, BORDER_DEFAULT);
+	convertScaleAbs(gray2_y, gray2_y);
+	addWeighted(gray2_x, 0.5, gray2_y, 0.5, 0, dst2);
+
+
+	vector<KeyPoint> kpts1, kpts2, kpts3, kpts4;
+	Mat desc1, desc2, desc3, desc4;
+	Ptr<AKAZE> akaze = AKAZE::create();
+	
+
+	akaze->detectAndCompute(img1, noArray(), kpts1, desc1);
+	akaze->detectAndCompute(img2, noArray(), kpts2, desc2);
+	akaze->detectAndCompute(dst1, noArray(), kpts3, desc3);
+	akaze->detectAndCompute(dst2, noArray(), kpts4, desc4);
+
+	BFMatcher matcher(NORM_HAMMING);
+	vector< vector<DMatch> > nn_matches1, nn_matches2;
+
+	matcher.knnMatch(desc1, desc2, nn_matches1, 2);
+	matcher.knnMatch(desc3, desc4, nn_matches2, 2);
+
+	vector<KeyPoint> matched1, matched2, matched3, matched4;
+	for (size_t i = 0; i < nn_matches1.size(); i++) {
+		DMatch first = nn_matches1[i][0];
+		float dist1 = nn_matches1[i][0].distance;
+		float dist2 = nn_matches1[i][1].distance;
+		if (dist1 < nn_match_ratio * dist2) {
+			matched1.push_back(kpts1[first.queryIdx]);
+			matched2.push_back(kpts2[first.trainIdx]);
+		}
+	}
+
+	for (size_t i = 0; i < nn_matches2.size(); i++) {
+		DMatch first = nn_matches2[i][0];
+		float dist1 = nn_matches2[i][0].distance;
+		float dist2 = nn_matches2[i][1].distance;
+		if (dist1 < nn_match_ratio * dist2) {
+			matched3.push_back(kpts3[first.queryIdx]);
+			matched4.push_back(kpts4[first.trainIdx]);
+		}
+	}
+	
+	vector<KeyPoint> inliers1, inliers2;
+	vector<Point2f> obj, scene;
+	for (unsigned int i = 0; i < matched1.size(); ++i)
+	{
+		obj.push_back(matched1[i].pt);
+		scene.push_back(matched2[i].pt);
+	}
+	for (unsigned int i = 0; i < matched3.size(); ++i)
+	{
+		obj.push_back(matched3[i].pt);
+		scene.push_back(matched4[i].pt);
+	}
+
+
+	Mat inliers_mask;
+	vector<DMatch> inlier_matches;
+	Mat H = findHomography(obj, scene, RANSAC, 3.0f, inliers_mask);
+	for (unsigned i = 0; i < matched1.size(); i++) {
+		if (inliers_mask.at<uchar>(i)){
+		int new_i = static_cast<int>(inliers1.size());
+		inliers1.push_back(matched1[i]);
+		inliers2.push_back(matched2[i]);
+		inlier_matches.push_back(DMatch(new_i, new_i, 0));
+		}
+	}
+
+	for (unsigned i = 0; i < matched3.size(); i++) {
+		if (inliers_mask.at<uchar>(i)) {
+			int new_i = static_cast<int>(inliers1.size());
+			inliers1.push_back(matched3[i]);
+			inliers2.push_back(matched4[i]);
+			inlier_matches.push_back(DMatch(new_i, new_i, 0));
+		}
+	}
+
+	Mat res;
+	drawMatches(img1, inliers1, img2, inliers2, inlier_matches, res);
+	imwrite("D:/Desktop/akaze_result.png", res);
+
+	Mat warped_img;
+	warpPerspective(img1, warped_img, H, img2.size(), INTER_LINEAR, BORDER_CONSTANT);  // 返回HR变换后的图像warped_img
+
+
+	Mat Mask = Mat::zeros(img2.size(), CV_8UC3);
+	vector<Mat> channels;
+	split(Mask, channels);
+	channels.at(1) = warped_img;
+	channels.at(2) = img2;
+	Mat mergeImage;
+	merge(channels, mergeImage);
+	imwrite("D:/Desktop/merge.png", mergeImage);
+	return 0;
+}
